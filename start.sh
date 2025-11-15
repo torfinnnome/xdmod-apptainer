@@ -17,7 +17,7 @@ mkdir -p "${HOST_XDMOD_CONFIG}" "${HOST_XDMOD_DATA}" "${HOST_XDMOD_LOG}" "${HOST
 mkdir -p ./httpd/logs ./httpd/run ./httpd/ssl ./httpd/conf ./httpd/php-fpm ./httpd/php-fpm-run ./httpd/php-fpm-etc
 mkdir -p ./ingest
 
-# --- Step 1: Copy default configs if missing ---
+# --- Copy default configs if missing ---
 if [ ! -f "${HOST_XDMOD_CONFIG}/portal_settings.ini" ]; then
   echo "==> Copying default XDMoD config from container to host..."
   apptainer exec \
@@ -25,76 +25,6 @@ if [ ! -f "${HOST_XDMOD_CONFIG}/portal_settings.ini" ]; then
     "${CONTAINER_IMAGE}" \
     /bin/bash -c "cp -au /etc/xdmod/* ${TMP_BIND}/"
   chmod u+w "${HOST_XDMOD_CONFIG}"/*
-fi
-
-# --- Step 1.5: Create Apache and PHP-FPM config files if missing ---
-if [ ! -f "./httpd/conf/xdmod.conf" ]; then
-  echo "==> Creating default Apache XDMoD config..."
-  cat >./httpd/conf/xdmod.conf <<'EOF'
-# Default XDMoD Apache configuration
-# This will be populated by XDMoD during setup
-EOF
-fi
-
-if [ ! -f "./httpd/conf/mpm.conf" ]; then
-  echo "==> Creating default Apache MPM config..."
-  cat >./httpd/conf/mpm.conf <<'EOF'
-# Default MPM prefork configuration
-<IfModule mpm_prefork_module>
-    StartServers             5
-    MinSpareServers          5
-    MaxSpareServers         10
-    MaxRequestWorkers      250
-    MaxConnectionsPerChild   0
-</IfModule>
-EOF
-fi
-
-if [ ! -f "./httpd/php-fpm-etc/www.conf" ]; then
-  echo "==> Creating default PHP-FPM config..."
-  cat >./httpd/php-fpm-etc/www.conf <<'EOF'
-[www]
-user = apache
-group = apache
-listen = /run/php-fpm/www.sock
-listen.owner = apache
-listen.group = apache
-pm = dynamic
-pm.max_children = 50
-pm.start_servers = 5
-pm.min_spare_servers = 5
-pm.max_spare_servers = 35
-EOF
-fi
-
-# --- Step 2: Create MariaDB config if missing ---
-if [ ! -f "${HOST_MYSQL_CONF}" ]; then
-  echo "==> Creating MariaDB configuration file with XDMoD-recommended settings..."
-  cat >"${HOST_MYSQL_CONF}" <<'EOF'
-[mysqld]
-# XDMoD recommended MariaDB configuration
-sql_mode = ''
-max_allowed_packet = 1G
-group_concat_max_len = 16M
-innodb_stats_on_metadata = off
-innodb_file_per_table = On
-
-# Performance tuning
-innodb_buffer_pool_size = 1G
-innodb_log_file_size = 256M
-
-# Disable binary logging unless explicitly needed
-skip-log-bin
-log_bin_trust_function_creators = 1
-
-# Networking
-port = 9306
-bind-address = 127.0.0.1
-
-# General
-character-set-server = utf8
-collation-server = utf8_general_ci
-EOF
 fi
 
 INSTANCE_NAME="xdmod"
