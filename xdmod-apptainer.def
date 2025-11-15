@@ -1,0 +1,77 @@
+Bootstrap: docker
+From: rockylinux:8
+
+%labels
+    Maintainer Torfinn Nome
+    Description "Apptainer container with Open XDMoD + MariaDB (listening on port 9306), auto-configured via env vars."
+
+%environment
+    export DB_PORT=${DB_PORT:-9306}
+    export BASE_URL=${BASE_URL:-http://localhost/xdmod}
+    export XDMOD_CONFIG_DIR=/etc/xdmod
+    export XDMOD_DATA_DIR=/var/lib/xdmod
+    export MYSQL_DATA_DIR=/var/lib/mysql
+    export MYSQL_PORT_CONF=/etc/my.cnf.d/xdmod-port.cnf
+
+%post
+    set -eux
+
+    # Configuration variables (not inherited from %environment at build time)
+    XDMOD_VERSION=11.0.2-3  # Update this to change XDMoD version
+    DB_PORT=9306
+    XDMOD_CONFIG_DIR=/etc/xdmod
+    XDMOD_DATA_DIR=/var/lib/xdmod
+    MYSQL_DATA_DIR=/var/lib/mysql
+    MYSQL_PORT_CONF=/etc/my.cnf.d/xdmod-port.cnf
+    HTTPD_PORT=8089
+
+    dnf -y install epel-release
+    dnf install -y https://rpms.remirepo.net/enterprise/remi-release-8.rpm
+    dnf module reset php
+    dnf -y module enable php:remi-7.4
+
+    dnf install -y httpd php php-cli php-mysqlnd php-gd gmp-devel php-gmp php-pdo php-xml php-devel \
+               php-pear php-mbstring php-pecl-apcu jq procps-ng libmcrypt-devel libmcrypt \
+               java-1.8.0-openjdk java-1.8.0-openjdk-devel \
+               mariadb-server mariadb cronie logrotate ghostscript sendmail
+
+    pecl channel-update pecl.php.net
+    pecl install mcrypt
+    echo "extension=mcrypt.so" > /etc/php.d/20-mcrypt.ini
+
+    dnf module reset nodejs
+    dnf -y module enable nodejs:18
+    dnf -y install nodejs
+    dnf -y install https://github.com/ubccr/xdmod/releases/download/v${XDMOD_VERSION}/xdmod-${XDMOD_VERSION}.el8.noarch.rpm
+    dnf clean all
+
+    mkdir -p ${XDMOD_CONFIG_DIR} ${XDMOD_DATA_DIR} ${MYSQL_DATA_DIR} /etc/my.cnf.d
+
+    # Configure MariaDB to use the non-standard port
+    cat <<EOF > ${MYSQL_PORT_CONF}
+[mysqld]
+port = ${DB_PORT}
+socket = /var/lib/mysql/mysql.sock
+
+[client]
+port = ${DB_PORT}
+socket = /var/lib/mysql/mysql.sock
+EOF
+
+    # Disable SSL in Apache to prevent startup errors
+    if [ -f /etc/httpd/conf.d/ssl.conf ]; then
+        mv /etc/httpd/conf.d/ssl.conf /etc/httpd/conf.d/ssl.conf.disabled
+    fi
+
+    # Change default Apache port
+    sed -i 's/^Listen 80/Listen '${HTTPD_PORT}'/' /etc/httpd/conf/httpd.conf
+
+%startscript
+    # Delegate all startup logic to the external script for flexibility
+    # This script will be bind-mounted from the host at instance start
+    exec /bin/bash /usr/local/bin/xdmod-start.sh
+
+%runscript
+    echo "To start services, run:  apptainer instance start xdmod.sif xdmod"
+    echo "Web portal available at: ${BASE_URL}"
+    echo "MariaDB runs on port:     ${DB_PORT}"
